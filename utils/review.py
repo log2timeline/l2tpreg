@@ -29,7 +29,7 @@ else:
 # Change PYTHONPATH to include utils.
 sys.path.insert(0, u'.')
 
-import utils.upload
+import utils.upload  # pylint: disable=wrong-import-position
 
 
 class CLIHelper(object):
@@ -879,7 +879,7 @@ class ProjectHelper(CLIHelper):
 
   SUPPORTED_PROJECTS = frozenset([
       u'dfdatetime', u'dfvfs', u'dfwinreg', u'dftimewolf', u'eccemotus',
-      u'l2tdevtools', u'l2tdocs', u'plaso'])
+      u'l2tdevtools', u'l2tdocs', u'plaso', u'preg'])
 
   def __init__(self, script_path):
     """Initializes a project helper object.
