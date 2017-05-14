@@ -22,7 +22,7 @@ import pysmdev  # pylint: disable=wrong-import-order
 
 from dfvfs.helpers import windows_path_resolver
 from dfvfs.lib import definitions as dfvfs_definitions
-from dfvfs.resolver import resolver
+from dfvfs.resolver import resolver as path_spec_resolver
 from dfvfs.volume import tsk_volume_system
 
 # pylint: disable=import-error
@@ -41,11 +41,12 @@ from plaso.cli import storage_media_tool
 from plaso.cli import tools as cli_tools
 from plaso.cli import views as cli_views
 from plaso.engine import knowledge_base
-from plaso.frontend import preg
 from plaso.lib import errors
 from plaso.lib import eventdata
 from plaso.lib import timelib
-from plaso.parsers import winreg_plugins  # pylint: disable=unused-import
+
+from l2tpreg import front_end
+from l2tpreg import helper
 
 
 # Older versions of IPython don't have a version_info attribute.
@@ -139,7 +140,7 @@ class PregTool(storage_media_tool.StorageMediaTool):
     """
     super(PregTool, self).__init__(
         input_reader=input_reader, output_writer=output_writer)
-    self._front_end = preg.PregFrontend()
+    self._front_end = front_end.PregFrontend()
     self._key_path = None
     self._knowledge_base_object = knowledge_base.KnowledgeBase()
     self._quiet = False
@@ -177,7 +178,8 @@ class PregTool(storage_media_tool.StorageMediaTool):
       return u'Event object has no path specification.'
 
     try:
-      file_entry = resolver.Resolver.OpenFileEntry(event_object.pathspec)
+      file_entry = path_spec_resolver.Resolver.OpenFileEntry(
+          event_object.pathspec)
     except IOError as exception:
       return u'Unable to open file with error: {0:s}'.format(exception)
 
@@ -638,7 +640,8 @@ class PregTool(storage_media_tool.StorageMediaTool):
       while selected_node.sub_nodes:
         selected_node = selected_node.sub_nodes[0]
 
-      file_system = resolver.Resolver.OpenFileSystem(selected_node.path_spec)
+      file_system = path_spec_resolver.Resolver.OpenFileSystem(
+          selected_node.path_spec)
       path_resolver = windows_path_resolver.WindowsPathResolver(
           file_system, selected_node.path_spec)
 
@@ -650,8 +653,8 @@ class PregTool(storage_media_tool.StorageMediaTool):
   def ListPluginInformation(self):
     """Lists Registry plugin information."""
     table_view = cli_views.CLITableView(title=u'Supported Plugins')
-    plugin_list = self._front_end.registry_plugin_list
-    for plugin_class in plugin_list.GetAllPlugins():
+    registry_plugin_list = self._front_end.registry_plugin_list
+    for plugin_class in registry_plugin_list.GetAllPlugins():
       table_view.AddRow([plugin_class.NAME, plugin_class.DESCRIPTION])
     table_view.Write(self._output_writer)
 
@@ -901,8 +904,9 @@ class PregTool(storage_media_tool.StorageMediaTool):
 
     plugins = []
     for plugin_name in self.plugin_names:
-      plugins.extend(self._front_end.GetRegistryPlugins(plugin_name))
-    plugin_list = [plugin.NAME for plugin in plugins]
+      registry_plugin = self._front_end.GetRegistryPlugins(plugin_name)
+      plugins.extend(registry_plugin)
+    plugin_names = [plugin.NAME for plugin in plugins]
 
     # In order to get all the Registry keys we need to expand them.
     if not registry_helpers:
@@ -910,19 +914,19 @@ class PregTool(storage_media_tool.StorageMediaTool):
 
     registry_helper = registry_helpers[0]
     key_paths = []
-    plugins_list = self._front_end.registry_plugin_list
+    registry_plugin_list = self._front_end.registry_plugin_list
     try:
       registry_helper.Open()
 
       # Get all the appropriate keys from these plugins.
-      key_paths = plugins_list.GetKeyPaths(plugin_names=plugin_list)
+      key_paths = registry_plugin_list.GetKeyPaths(plugin_names=plugin_names)
 
     finally:
       registry_helper.Close()
 
     for registry_helper in registry_helpers:
       parsed_data = self._front_end.ParseRegistryFile(
-          registry_helper, key_paths=key_paths, use_plugins=plugin_list)
+          registry_helper, key_paths=key_paths, use_plugins=plugin_names)
       self._PrintParsedRegistryFile(parsed_data, registry_helper)
 
 
@@ -1217,8 +1221,8 @@ class PregMagics(magic.Magics):
         plugin_name = items[0]
 
     registry_file_type = current_helper.file_type
-    plugins_list = self.console.preg_tool.GetWindowsRegistryPlugins()
-    plugin_object = plugins_list.GetPluginObjectByName(
+    registry_plugin_list = self.console.preg_tool.GetWindowsRegistryPlugins()
+    plugin_object = registry_plugin_list.GetPluginObjectByName(
         registry_file_type, plugin_name)
     if not plugin_object:
       self.output_writer.Write(
@@ -1377,7 +1381,7 @@ class PregConsole(object):
     if not registry_helper:
       raise ValueError(u'No Registry helper supplied.')
 
-    if not isinstance(registry_helper, preg.PregRegistryHelper):
+    if not isinstance(registry_helper, helper.PregRegistryHelper):
       raise ValueError(
           u'Object passed in is not an instance of PregRegistryHelper.')
 
@@ -1676,9 +1680,9 @@ def CommandCompleterPlugins(console, core_completer):
   registry_helper = magic_class.console.current_helper
   registry_file_type = registry_helper.file_type
 
-  plugins_list = console.preg_tool.GetWindowsRegistryPlugins()
+  registry_plugin_list = console.preg_tool.GetWindowsRegistryPlugins()
   # TODO: refactor this into PluginsList.
-  for plugin_cls in plugins_list.GetKeyPlugins(registry_file_type):
+  for plugin_cls in registry_plugin_list.GetKeyPlugins(registry_file_type):
     if plugin_cls.NAME == u'winreg_default':
       continue
     command_options.append(plugin_cls.NAME)
