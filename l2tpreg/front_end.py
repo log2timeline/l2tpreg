@@ -11,7 +11,6 @@ from dfvfs.path import factory as path_spec_factory
 from dfvfs.resolver import resolver as path_spec_resolver
 
 from plaso.containers import sessions
-from plaso.frontend import extraction_frontend
 from plaso.lib import py2to3
 from plaso.parsers import mediator as parsers_mediator
 from plaso.parsers import manager as parsers_manager
@@ -25,15 +24,15 @@ from l2tpreg import helper
 from l2tpreg import plugin_list
 
 
-class PregFrontend(extraction_frontend.ExtractionFrontend):
-  """Class that implements the preg front-end.
+class PregFrontend(object):
+  """Preg front-end.
 
   Attributes:
     knowledge_base_object (plaso.KnowledgeBase): knowledge base.
   """
 
   def __init__(self):
-    """Initializes a front-end object."""
+    """Initializes a preg front-end."""
     super(PregFrontend, self).__init__()
     self._mount_path_spec = None
     self._parse_restore_points = False
@@ -277,10 +276,13 @@ class PregFrontend(extraction_frontend.ExtractionFrontend):
 
   # TODO: refactor this function. Current implementation is too complex.
   def GetRegistryHelpers(
-      self, registry_file_types=None, plugin_names=None, codepage=u'cp1252'):
+      self, artifacts_registry, registry_file_types=None, plugin_names=None,
+      codepage=u'cp1252'):
     """Retrieves discovered Windows Registry helpers.
 
     Args:
+    artifacts_registry (artifacts.ArtifactDefinitionsRegistry]): artifact
+        definitions registry.
       registry_file_types (Optional[list[str]]): of Windows Registry file types,
           for example "NTUSER" or "SAM" that should be included.
       plugin_names (Optional[str]): names of the plugins or an empty string for
@@ -309,7 +311,8 @@ class PregFrontend(extraction_frontend.ExtractionFrontend):
           self._source_path_specs[0])
       try:
         preprocess_manager.PreprocessPluginsManager.RunPlugins(
-            file_system, mount_point, self.knowledge_base_object)
+            artifacts_registry, file_system, mount_point,
+            self.knowledge_base_object)
         self._preprocess_completed = True
       finally:
         file_system.Close()
@@ -522,20 +525,25 @@ class PregFrontend(extraction_frontend.ExtractionFrontend):
 
       found_matching_plugin = True
       plugin_object.Process(parser_mediator, registry_key)
-      if storage_writer.events:
-        return_dict[plugin_object] = storage_writer.events
+
+      events = list(storage_writer.GetEvents())
+      if events:
+        return_dict[plugin_object] = events
 
     if not found_matching_plugin:
       winreg_parser = parsers_manager.ParsersManager.GetParserObjectByName(
           u'winreg')
       if not winreg_parser:
         return
+
       default_plugin_object = winreg_parser.GetPluginObjectByName(
           u'winreg_default')
 
       default_plugin_object.Process(parser_mediator, registry_key)
-      if storage_writer.events:
-        return_dict[default_plugin_object] = storage_writer.events
+
+      events = list(storage_writer.GetEvents())
+      if events:
+        return_dict[default_plugin_object] = events
 
     return return_dict
 

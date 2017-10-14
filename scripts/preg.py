@@ -34,10 +34,10 @@ except ImportError:
 from IPython.config.loader import Config
 from IPython.core import magic
 
-from plaso.cli import hexdump
 from plaso.cli import storage_media_tool
 from plaso.cli import tools as cli_tools
 from plaso.cli import views as cli_views
+from plaso.cli.helpers import manager as helpers_manager
 from plaso.engine import knowledge_base
 from plaso.lib import definitions as plaso_definitions
 from plaso.lib import errors
@@ -45,6 +45,7 @@ from plaso.lib import timelib
 
 from l2tpreg import front_end
 from l2tpreg import helper
+from l2tpreg import hexdump
 from l2tpreg import plugin_list
 
 
@@ -127,18 +128,17 @@ class PregTool(storage_media_tool.StorageMediaTool):
       u'timestamp'])
 
   def __init__(self, input_reader=None, output_writer=None):
-    """Initializes the CLI tool object.
+    """Initializes the CLI tool.
 
     Args:
-      input_reader: optional input reader (instance of InputReader).
-                    The default is None which indicates the use of the stdin
-                    input reader.
-      output_writer: optional output writer (instance of OutputWriter).
-                     The default is None which indicates the use of the stdout
-                     output writer.
+      input_reader (Optional[InputReader]): input reader, where None indicates
+          that the stdin input reader should be used.
+      output_writer (Optional[OutputWriter]): output writer, where None
+          indicates that the stdout output writer should be used.
     """
     super(PregTool, self).__init__(
         input_reader=input_reader, output_writer=output_writer)
+    self._artifacts_registry = None
     self._front_end = front_end.PregFrontend()
     self._key_path = None
     self._knowledge_base_object = knowledge_base.KnowledgeBase()
@@ -152,6 +152,10 @@ class PregTool(storage_media_tool.StorageMediaTool):
     self.registry_file = u''
     self.run_mode = None
     self.source_type = None
+
+  def artifacts_registry(self):
+    """artifacts.ArtifactDefinitionsRegistry]: artifact definitions registry."""
+    return self._artifacts_registry
 
   def _GetEventDataHexDump(
       self, event, before=0, maximum_number_of_lines=20):
@@ -440,10 +444,7 @@ class PregTool(storage_media_tool.StorageMediaTool):
 
     list_of_timestamps = sorted(events_and_timestamps.keys())
 
-    if len(list_of_timestamps) > 1:
-      exclude_timestamp_in_header = True
-    else:
-      exclude_timestamp_in_header = False
+    exclude_timestamp_in_header = len(list_of_timestamps) > 1
 
     first_timestamp = list_of_timestamps[0]
     first_event = events_and_timestamps[first_timestamp][0]
@@ -688,6 +689,18 @@ class PregTool(storage_media_tool.StorageMediaTool):
 
     self.AddStorageMediaImageOptions(image_options)
 
+    processing_group = argument_parser.add_argument_group(
+        'Processing Arguments')
+
+    helpers_manager.ArgumentHelperManager.AddCommandLineArguments(
+        processing_group, names=['data_location'])
+
+    extraction_group = argument_parser.add_argument_group(
+        'Extraction Arguments')
+
+    helpers_manager.ArgumentHelperManager.AddCommandLineArguments(
+        extraction_group, names=['artifact_definitions'])
+
     info_options = argument_parser.add_argument_group(u'Informational Options')
 
     info_options.add_argument(
@@ -770,13 +783,18 @@ class PregTool(storage_media_tool.StorageMediaTool):
     source_path = None
     if image:
       # TODO: refactor, there should be no need for separate code paths.
-      super(PregTool, self).ParseOptions(options)
       source_path = image
       self._front_end.SetSingleFile(False)
     else:
       self._ParseInformationalOptions(options)
       source_path = registry_file
       self._front_end.SetSingleFile(True)
+
+    helpers_manager.ArgumentHelperManager.ParseOptions(
+        options, self, names=['data_location'])
+
+    helpers_manager.ArgumentHelperManager.ParseOptions(
+        options, self, names=['artifact_definitions'])
 
     if source_path is None:
       raise errors.BadConfigOption(u'No source path set.')
@@ -843,7 +861,7 @@ class PregTool(storage_media_tool.StorageMediaTool):
     them, one by one.
     """
     registry_helpers = self._front_end.GetRegistryHelpers(
-        registry_file_types=[self.registry_file])
+        self._artifacts_registry, registry_file_types=[self.registry_file])
 
     for registry_helper in registry_helpers:
       try:
@@ -878,8 +896,8 @@ class PregTool(storage_media_tool.StorageMediaTool):
     all available plugins.
     """
     registry_helpers = self._front_end.GetRegistryHelpers(
-        registry_file_types=[self.registry_file],
-        plugin_names=self.plugin_names)
+        self._artifacts_registry, plugin_names=self.plugin_names,
+        registry_file_types=[self.registry_file])
 
     key_paths = [self._key_path]
 
@@ -896,7 +914,7 @@ class PregTool(storage_media_tool.StorageMediaTool):
     # TODO: Add support for splitting the output to separate files based on
     # each plugin name.
     registry_helpers = self._front_end.GetRegistryHelpers(
-        plugin_names=self.plugin_names)
+        self._artifacts_registry, plugin_names=self.plugin_names)
 
     plugins = []
     for plugin_name in self.plugin_names:
@@ -982,7 +1000,7 @@ class PregMagics(magic.Magics):
     """Handles the hive scan action.
 
     Args:
-      line: the command line provide via the console.
+      line (str): command line provide via the console.
     """
     # Line contains: "scan REGISTRY_TYPES" where REGISTRY_TYPES is a comma
     # separated list.
@@ -994,6 +1012,7 @@ class PregMagics(magic.Magics):
           string.strip() for string in registry_file_type_string.split(u',')]
 
     registry_helpers = self.console.preg_front_end.GetRegistryHelpers(
+        self.console.preg_front_end.artifacts_registry,
         registry_file_types=registry_file_types)
 
     for registry_helper in registry_helpers:
@@ -1017,7 +1036,7 @@ class PregMagics(magic.Magics):
 
     for registry_key in plugin_object.expanded_keys:
       table_view.AddRow([u'Registry Key', registry_key])
-    table_view.Write(self._output_writer)
+    table_view.Write(self.output_writer)
 
   def _SanitizeKeyPath(self, key_path):
     """Sanitizes a Windows Registry key path.
@@ -1194,7 +1213,7 @@ class PregMagics(magic.Magics):
   def ParseWithPlugin(self, line):
     """Parse a Registry key using a specific plugin."""
     if not self.console and not self.console.IsLoaded():
-      self._output_writer.Write(u'No hive loaded, unable to parse.\n')
+      self.output_writer.Write(u'No hive loaded, unable to parse.\n')
       return
 
     current_helper = self.console.current_helper
@@ -1557,8 +1576,9 @@ class PregConsole(object):
       registry_file_types = self.preg_front_end.GetRegistryTypes()
 
     registry_helpers = self.preg_front_end.GetRegistryHelpers(
-        registry_file_types=registry_file_types,
-        plugin_names=self.preg_tool.plugin_names)
+        self.preg_front_end.artifacts_registry,
+        plugin_names=self.preg_tool.plugin_names,
+        registry_file_types=registry_file_types)
 
     for registry_helper in registry_helpers:
       self.AddRegistryHelper(registry_helper)
