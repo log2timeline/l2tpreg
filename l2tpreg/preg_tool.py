@@ -18,6 +18,7 @@ from dfvfs.path import factory as path_spec_factory
 from dfvfs.resolver import resolver as path_spec_resolver
 from dfvfs.volume import tsk_volume_system
 
+from plaso.lib import loggers
 from plaso.cli import storage_media_tool
 from plaso.cli import views as cli_views
 from plaso.cli.helpers import manager as helpers_manager
@@ -32,7 +33,7 @@ from plaso.parsers import mediator as parsers_mediator
 from plaso.parsers import winreg_plugins  # pylint: disable=unused-import
 from plaso.preprocessors import manager as preprocess_manager
 # TODO: refactor usage of fake storage.
-from plaso.storage import fake_storage
+from plaso.storage.fake import writer as fake_storage_writer
 
 from l2tpreg import definitions
 from l2tpreg import helper
@@ -144,8 +145,9 @@ class PregTool(storage_media_tool.StorageMediaTool):
     self.run_mode = None
     self.source_type = None
 
+  @property
   def artifacts_registry(self):
-    """artifacts.ArtifactDefinitionsRegistry]: artifact definitions registry."""
+    """artifacts.ArtifactDefinitionsRegistry: artifact definitions registry."""
     return self._artifacts_registry
 
   def _CreateWindowsPathResolver(
@@ -1011,7 +1013,7 @@ class PregTool(storage_media_tool.StorageMediaTool):
     Returns:
       bool: True if the arguments were successfully parsed.
     """
-    self._ConfigureLogging()
+    loggers.ConfigureLogging()
 
     argument_parser = argparse.ArgumentParser(
         description=self.DESCRIPTION, epilog=self.EPILOG, add_help=False,
@@ -1194,7 +1196,7 @@ class PregTool(storage_media_tool.StorageMediaTool):
 
     self.registry_file = registry_file
 
-    scan_context = self.ScanSource()
+    scan_context = self.ScanSource(self._source_path)
     self.source_type = scan_context.source_type
 
   def PrintHeader(self, text, character='*'):
@@ -1247,7 +1249,7 @@ class PregTool(storage_media_tool.StorageMediaTool):
 
     # TODO: refactor usage of fake storage.
     session = sessions.Session()
-    storage_writer = fake_storage.FakeStorageWriter(session)
+    storage_writer = fake_storage_writer.FakeStorageWriter(session)
     storage_writer.Open()
 
     parser_mediator = parsers_mediator.ParserMediator(
