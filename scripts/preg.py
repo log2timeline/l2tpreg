@@ -17,14 +17,18 @@ import IPython
 
 from dfvfs.lib import definitions as dfvfs_definitions
 
-# pylint: disable=import-error,no-name-in-module,ungrouped-imports
+# pylint: disable=import-error,no-name-in-module,ungrouped-imports,wrong-import-position
 try:
-  # Support version 1.x of IPython.
+  # Support IPython 1.x
   from IPython.terminal.embed import InteractiveShellEmbed
 except ImportError:
   from IPython.frontend.terminal.embed import InteractiveShellEmbed
 
-from IPython.config.loader import Config
+if IPython.__version__ < '4.0.0':
+  from IPython.config import loader as config
+else:
+  from traitlets import config
+
 from IPython.core import magic
 
 from plaso.cli import tools as cli_tools
@@ -504,14 +508,14 @@ class PregConsole(object):
     """Retrieves the iPython configuration.
 
     Returns:
-      IPython.terminal.embed.InteractiveShellEmbed: iPython configuration.
+      traitlets.Config: iPython configuration.
     """
     try:
       # The "get_ipython" function does not exist except within an IPython
       # session.
       return get_ipython()  # pylint: disable=undefined-variable
     except NameError:
-      return Config()
+      return config.Config()
 
   def IsLoaded(self):
     """Checks if a Windows Registry file is loaded.
@@ -621,15 +625,14 @@ class PregConsole(object):
           index, star, registry_helper.path, collector_name))
 
   def SetPrompt(
-      self, registry_file_path=None, config=None, prepend_string=None):
+      self, registry_file_path=None, configuration=None, prepend_string=None):
     """Sets the prompt string on the console.
 
     Args:
       registry_file_path (Optional[str]): name or path of the Windows Registry
           file.
-      config (Optional[IPython.terminal.embed.InteractiveShellEmbed]): iPython
-          configuration, where None will attempt to automatically derive
-          the configuration.
+      configuration (Optional[traitlets.Config]): iPython configuration, where
+          None will attempt to automatically derive the configuration.
       prepend_string (Optional[str]): text to prepend in the command prompt.
     """
     if registry_file_path is None:
@@ -646,15 +649,19 @@ class PregConsole(object):
       prompt_strings.append('{0:s} '.format(prepend_string))
     prompt_strings.append(r'[{color.Red}\#{color.Normal}] \$ ')
 
-    if config is None:
+    if configuration is None:
       ipython_config = self.GetConfig()
     else:
-      ipython_config = config
+      ipython_config = configuration
 
     try:
-      ipython_config.PromptManager.in_template = r''.join(prompt_strings)
+      # PromptManager was replaced by prompts_class in IPython 5.0
+      ipython_config.prompts_class.in_template = r''.join(prompt_strings)
     except AttributeError:
-      ipython_config.prompt_manager.in_template = r''.join(prompt_strings)
+      try:
+        ipython_config.PromptManager.in_template = r''.join(prompt_strings)
+      except AttributeError:
+        ipython_config.prompt_manager.in_template = r''.join(prompt_strings)
 
   def Run(self):
     """Runs the interactive console."""
@@ -699,7 +706,8 @@ class PregConsole(object):
     else:
       registry_file_path = 'NO HIVE LOADED'
 
-    self.SetPrompt(registry_file_path=registry_file_path, config=ipshell_config)
+    self.SetPrompt(
+        registry_file_path=registry_file_path, configuration=ipshell_config)
 
     # Starting the shell.
     ipshell = InteractiveShellEmbed(
