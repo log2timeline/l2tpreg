@@ -61,6 +61,10 @@ class TestCase(object):
     name (str): name of the test case.
   """
 
+  # Note that redundant-returns-doc is broken for pylint 1.7.x for abstract
+  # methods
+  # pylint: disable=redundant-returns-doc
+
   NAME = None
 
   def __init__(
@@ -195,7 +199,7 @@ class TestCasesManager(object):
             test_results_path, debug_output=debug_output)
 
       if not test_case_object:
-        return
+        return None
 
       cls._test_case_objects[name] = test_case_object
 
@@ -304,7 +308,7 @@ class TestDefinitionReader(object):
     try:
       return self._config_parser.get(section_name, value_name).decode('utf-8')
     except configparser.NoOptionError:
-      return
+      return None
 
   def Read(self, file_object):
     """Reads test definitions.
@@ -389,7 +393,7 @@ class TestLauncher(object):
       test_definition (TestDefinition): test definition.
 
     Returns:
-      A boolean value indicating the test ran successfully.
+      bool: True if the test ran successfully.
     """
     test_case = TestCasesManager.GetTestCaseObject(
         test_definition.case, self._tools_path, self._test_sources_path,
